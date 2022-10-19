@@ -155,10 +155,14 @@ def create_parser():
     sub_parser = command_parser.add_parser(
         'get-instances', help='Show instances connected to the controller.')
     sub_parser.set_defaults(run_cmd=cmd_get_instances)
+    sub_parser.add_argument('--human', action='store_true',
+                            help='Show report in a human readable format.')
 
     sub_parser = command_parser.add_parser(
         'get-nodes', help='Show active Zeek nodes at each instance.')
     sub_parser.set_defaults(run_cmd=cmd_get_nodes)
+    sub_parser.add_argument('--human', action='store_true',
+                            help='Show report in a human readable format.')
 
     sub_parser = command_parser.add_parser(
         'monitor', help='For troubleshooting: do nothing, just report events.')
@@ -257,6 +261,67 @@ def cmd_deploy(args):
 
     print(json_dumps(json_data))
     return retval
+
+def color_len(my_str):
+    if "\033[1m" in my_str:
+        return len(my_str) - 8
+    elif "\033" in my_str:
+        return len(my_str) - 9
+    else:
+        return len(my_str)
+
+def color_ljust(my_str, width):
+    if "\033[1m" in my_str:
+        llen = len(my_str) - 8
+    elif "\033" in my_str:
+        llen = len(my_str) - 9
+    else:
+        llen = len(my_str)
+    for i in range(llen, width):
+        my_str = my_str + " "
+    return my_str
+
+def human_readable_table(human_format, data):
+    out = list()
+
+    # Build the header row
+    row = list()
+    row.append("\033[1m" + human_format['col1'] + "\033[0m")
+    for col in human_format['columns']:
+        row.append("\033[1m" + col['name'] + "\033[0m")
+    out.append(row)
+
+    for key in data:
+        # the key just goes in column 1 directly 
+        row = []
+        row.append(key)
+        for col in human_format['columns']:
+            cell = "n/a" # default cell value
+            if(len(col['fields']) > 1):
+                    # multiple fields could fill this column (ie, mgmt_role or cluster_role)
+                    # use the first one we have that isn't null
+                    for field in col['fields']:
+                        # if we have the field and it's not null
+                        if(field in data[key] and data[key][field]):
+                            cell = str(data[key][field]) 
+                            break
+            else:
+                field = col['fields'][0]
+                if(field in data[key] and data[key][field]):
+                    cell = str(data[key][field])
+
+            if('colors' in col):
+                if(cell in col['colors']):
+                    cell = col['colors'][cell] + cell + "\033[0m"
+
+            row.append(cell)
+        out.append(row)
+
+    # set column widths and print
+    widths = [max(map(color_len, col)) for col in zip(*out)]
+    for row in out:
+        print("    ".join((color_ljust(val, width) for val, width in zip(row, widths))))
+    print()
 
 
 def cmd_get_config(args):
@@ -383,9 +448,22 @@ def cmd_get_instances(_args):
     except TypeError as err:
         LOG.error('instance data invalid: %s', err)
 
-    print(json_dumps(json_data))
-    return 0
+    if(not _args.human):
+        print(json_dumps(json_data))
+    else:
+        # Human Readable Template
+        human_format = {
+            'col1': 'Instance',
+            'columns': [
+               { 'name': 'Host',
+                 'fields': ['host']
+               }
+            ]
+        }
+        print()
+        human_readable_table(human_format, json_data)
 
+    return 0
 
 def cmd_get_nodes(_args):
     controller = create_controller()
@@ -446,9 +524,44 @@ def cmd_get_nodes(_args):
             LOG.error('NodeStatus data invalid: %s', err)
             LOG.debug(traceback.format_exc())
 
-    print(json_dumps(json_data))
-    return 0 if len(json_data['errors']) == 0 else 1
+    if(not _args.human):
+        print(json_dumps(json_data))
+    else:
+        # Human Readable Template
+        # Given a dict we define column names in the order we want to display them
+        # The dict key is assumed to be a column1
+        human_format = {  
+            'col1': 'Node Name',
+            'columns': [
+               { 'name': 'Role',
+                 'fields': ['cluster_role','mgmt_role'], # if list size > 1, use the first available field that exists and isn't null
+               },
+               { 'name': 'Pid',
+                 'fields': ['pid'],
+               },
+               { 'name': 'Port',
+                 'fields': ['port'],
+               },
+               { 'name': 'State',
+                 'fields': ['state'],
+                 'colors': { 'PENDING': "\033[94m", # blue
+                            'RUNNING': "\033[92m", # green
+                            'STOPPED': "\033[93m", # yellow
+                            'FAILED':  "\033[91m", #red
+                            'CRASHED': "\033[91m", #red
+                            'UNKNOWN': "\033[90m", #grey
+                          }
+               }
+            ]
+         }
 
+        if(json_data['errors']):
+            print("\n\033[91mErrors:\033[0m %s" % json_data['errors'])
+        for instance in json_data['results']:
+            print("\n\033[1mInstance:\033[0m %s" % instance)
+            human_readable_table(human_format, json_data['results'][instance])
+
+    return 0 if len(json_data['errors']) == 0 else 1
 
 def cmd_monitor(_args):
     controller = create_controller()

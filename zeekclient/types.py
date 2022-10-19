@@ -131,6 +131,9 @@ class ClusterRole(BrokerEnumType):
     PROXY = 3
     WORKER = 4
 
+    def __str__(self):
+        return str(self.name)
+
     @classmethod
     def module_scope(cls):
         return 'Supervisor'
@@ -142,6 +145,9 @@ class ManagementRole(BrokerEnumType):
     AGENT = 1
     CONTROLLER = 2
     NODE = 3
+
+    def __str__(self):
+        return str(self.name)
 
     @classmethod
     def module_scope(cls):
@@ -156,6 +162,9 @@ class State(BrokerEnumType):
     FAILED = 3
     CRASHED = 4
     UNKNOWN = 5
+
+    def __str__(self):
+        return str(self.name)
 
     @classmethod
     def module_scope(cls):
